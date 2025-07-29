@@ -1,3 +1,5 @@
 pytube
 moviepy
 python-telegram-bot==20.0
+yt_dlp
+google-api-python-client
