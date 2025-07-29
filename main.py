@@ -8,7 +8,7 @@ from telegram import Bot
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-CHANNEL_IDS = os.environ.get("CHANNEL_IDS").split(",")  # اكتب IDs بالقائمة كـ "id1,id2,id3"
+channel_id = request.args.get("channel_id", "UCm6dEXyAMIy0njEOW-suLww")
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
