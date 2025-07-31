@@ -4,4 +4,4 @@ requests
 google-api-python-client
 moviepy
 pytube
-python-telegram-bot==20.6
+python-telegram-bot==20.7
