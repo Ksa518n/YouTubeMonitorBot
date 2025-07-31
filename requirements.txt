@@ -1,3 +1,5 @@
-pytube
+requests
+python-dotenv
+yt_dlp
 moviepy
-python-telegram-bot==13.15
+telebot
