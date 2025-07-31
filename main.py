@@ -1,94 +1,92 @@
 import os
-import yt_dlp
 import requests
-from flask import Flask
+import time
 from pytube import YouTube
 from moviepy.video.io.VideoFileClip import VideoFileClip
-from pydub import AudioSegment
 from telegram import Bot
 
-app = Flask(__name__)
-
-YOUTUBE_CHANNEL_ID = "UCm6dEXyAMIy0njEOW-suLww"
-MY_CHANNEL_UPLOAD_URL = "https://www.youtube.com/@Ksa518nn"
+# إعدادات
+CHANNEL_ID = "UCm6dEXyAMIy0njEOW-suLww"
+API_KEY = "AIzaSyD...your-youtube-api-key..."  # ضع مفتاح YouTube Data API v3
 TELEGRAM_TOKEN = "7775785980:AAEqt9Xld1mVZKwTH3lUOab9OELokAmsirA"
-TELEGRAM_CHAT_ID = "518518518"
-DOWNLOAD_PATH = "./downloads"
+TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"  # معرف الشات، يمكنك استخدام BotFather للحصول عليه
 
-os.makedirs(DOWNLOAD_PATH, exist_ok=True)
+VIDEO_FOLDER = "videos"
+os.makedirs(VIDEO_FOLDER, exist_ok=True)
 
-def download_latest_video():
-    ydl_opts = {
-        'quiet': True,
-        'outtmpl': f'{DOWNLOAD_PATH}/%(id)s.%(ext)s',
-        'format': 'best'
-    }
-    
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        # استخراج بيانات القناة
-        channel_url = f"https://www.youtube.com/channel/{YOUTUBE_CHANNEL_ID}/videos"
-        info = ydl.extract_info(channel_url, download=False)
-        
-        # أخذ أحدث فيديو
-        if "entries" not in info or not info["entries"]:
-            print("❌ لا توجد فيديوهات.")
-            return None
+bot = Bot(token=TELEGRAM_TOKEN)
 
-        latest_video = info["entries"][0]
-        video_id = latest_video["id"]
-        video_url = f"https://www.youtube.com/watch?v={video_id}"
+# جلب أحدث فيديو
+def get_latest_video():
+    url = f"https://www.googleapis.com/youtube/v3/search?key={API_KEY}&channelId={CHANNEL_ID}&part=snippet,id&order=date&maxResults=1"
+    r = requests.get(url)
+    data = r.json()
+    video_id = data["items"][0]["id"].get("videoId", None)
+    return video_id
 
-        # نحاول نتأكد أن الفيديو متاح
-        try:
-            ydl.extract_info(video_url, download=False)
-        except Exception as e:
-            print(f"⚠️ الفيديو غير متاح: {video_url}")
-            return None
-        
-        # إذا الفيديو متاح نحمله
-        ydl.download([video_url])
-        return os.path.join(DOWNLOAD_PATH, f"{video_id}.mp4")
+# تحميل فيديو
+def download_video(video_id):
+    yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+    stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+    file_path = os.path.join(VIDEO_FOLDER, f"{video_id}.mp4")
+    stream.download(output_path=VIDEO_FOLDER, filename=f"{video_id}.mp4")
+    return file_path
 
-def split_video(video_path):
-    clip = VideoFileClip(video_path)
+# تقسيم الفيديو إلى أجزاء كل جزء دقيقة ونص
+def split_video(file_path):
+    clips = []
+    clip = VideoFileClip(file_path)
     duration = clip.duration
-    parts = []
-
-    i = 0
-    start = 0
-    while start < duration:
+    count = 1
+    for start in range(0, int(duration), 90):
         end = min(start + 90, duration)
-        part_path = f"{video_path}_part{i+1}.mp4"
-        clip.subclip(start, end).write_videofile(part_path, codec="libx264")
-        parts.append(part_path)
-        start = end
-        i += 1
-
+        part_path = os.path.join(VIDEO_FOLDER, f"part{count}.mp4")
+        clip.subclip(start, end).write_videofile(part_path, codec="libx264", audio_codec="aac")
+        clips.append(part_path)
+        count += 1
     clip.close()
-    return parts
+    return clips
 
-def notify_telegram(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message
-    }
-    requests.post(url, data=data)
+# إرسال الفيديوهات لتليجرام
+def send_to_telegram(parts):
+    for i, part in enumerate(parts):
+        caption = f"Part {i + 1}"
+        with open(part, 'rb') as video_file:
+            bot.send_video(chat_id=TELEGRAM_CHAT_ID, video=video_file, caption=caption)
 
-@app.route("/")
-def run_bot():
-    video_path = download_latest_video()
-    if not video_path:
-        return "⛔ لم يتم تحميل أي فيديو."
+# التخزين المحلي للفيديو السابق
+LAST_ID_FILE = "last_video_id.txt"
 
-    parts = split_video(video_path)
+def get_last_video_id():
+    if os.path.exists(LAST_ID_FILE):
+        with open(LAST_ID_FILE, "r") as f:
+            return f.read().strip()
+    return ""
 
-    for idx, part in enumerate(parts):
-        print(f"✅ Part {idx+1} saved: {part}")
+def save_last_video_id(video_id):
+    with open(LAST_ID_FILE, "w") as f:
+        f.write(video_id)
 
-    notify_telegram("📢 تم رفع الفيديو المجزأ على القناة.")
+# المهمة الرئيسية
+def main():
+    while True:
+        try:
+            latest_video_id = get_latest_video()
+            last_video_id = get_last_video_id()
 
-    return "✅ اكتملت العملية."
+            if latest_video_id and latest_video_id != last_video_id:
+                print(f"[+] فيديو جديد: {latest_video_id}")
+                file_path = download_video(latest_video_id)
+                parts = split_video(file_path)
+                send_to_telegram(parts)
+                save_last_video_id(latest_video_id)
+            else:
+                print("[-] لا يوجد فيديو جديد")
+
+        except Exception as e:
+            print(f"[!] خطأ: {e}")
+
+        time.sleep(300)  # انتظر 5 دقائق قبل التحقق مجددًا
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    main()
