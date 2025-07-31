@@ -1,6 +1,10 @@
-python-telegram-bot==20.7
-Flask==2.2.5
-pytube==15.0.0
-moviepy==1.0.3
-python-dotenv==1.0.1
-requests==2.31.0
+Flask
+python-telegram-bot==20.3
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+yt-dlp
+moviepy
+requests
+python-dotenv
