@@ -19,14 +19,14 @@ ADMIN_ID = int(os.getenv("ADMIN_ID"))
 app = Flask(__name__)
 @app.route("/")
 def home():
-    return "YouTube Monitor Bot is running ✅"
+    return "✅ YouTube Monitor Bot is Running!"
 
 # إعداد YouTube API
 youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
 last_video_id = None
 monitoring_active = False
 
-# مراقبة فيديوهات اليوتيوب
+# دالة مراقبة قناة اليوتيوب
 def check_new_video():
     global last_video_id, monitoring_active
     while monitoring_active:
@@ -40,26 +40,26 @@ def check_new_video():
                 url = f"https://www.youtube.com/watch?v={video_id}"
                 download_and_send_video(url)
         except Exception as e:
-            print(f"Error checking video: {e}")
+            print(f"[!] Error checking video: {e}")
         time.sleep(60)
 
-# تحميل الفيديو وإرساله
+# تحميل الفيديو وتقسيمه وإرساله
 def download_and_send_video(url):
     try:
         yt = YouTube(url)
         stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
         filename = "video.mp4"
         stream.download(filename=filename)
+
         clips = split_video(filename)
-
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
-        for i, clip in enumerate(clips, 1):
-            with open(clip, 'rb') as f:
-                bot.send_video(chat_id=TELEGRAM_CHAT_ID, video=f, caption=f"Part {i}")
+        for i, part_path in enumerate(clips, 1):
+            with open(part_path, 'rb') as f:
+                bot.send_video(chat_id=TELEGRAM_CHAT_ID, video=f, caption=f"🎬 Part {i}")
     except Exception as e:
-        print(f"Error downloading/sending: {e}")
+        print(f"[!] Error sending video: {e}")
 
-# تقسيم الفيديو لمقاطع كل واحدة 90 ثانية
+# تقسيم الفيديو إلى مقاطع مدتها 90 ثانية
 def split_video(file_path):
     clip = VideoFileClip(file_path)
     clips = []
@@ -71,27 +71,27 @@ def split_video(file_path):
 
 # أوامر البوت
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("اهلا! استخدم /start_monitoring لبدء المراقبة أو /stop_monitoring للإيقاف.")
+    await update.message.reply_text("👋 أهلاً بك! استخدم /start_monitoring لبدء المراقبة أو /stop_monitoring للإيقاف.")
 
 async def start_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global monitoring_active
     if update.effective_user.id != ADMIN_ID:
-        return await update.message.reply_text("❌ غير مصرح لك باستخدام هذا الأمر.")
+        return await update.message.reply_text("🚫 غير مصرح لك باستخدام هذا الأمر.")
     if not monitoring_active:
         monitoring_active = True
         threading.Thread(target=check_new_video, daemon=True).start()
         await update.message.reply_text("✅ بدأت مراقبة قناة اليوتيوب.")
     else:
-        await update.message.reply_text("🔄 المراقبة تعمل بالفعل.")
+        await update.message.reply_text("ℹ️ المراقبة تعمل بالفعل.")
 
 async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global monitoring_active
     if update.effective_user.id != ADMIN_ID:
-        return await update.message.reply_text("❌ غير مصرح لك باستخدام هذا الأمر.")
+        return await update.message.reply_text("🚫 غير مصرح لك باستخدام هذا الأمر.")
     monitoring_active = False
     await update.message.reply_text("🛑 تم إيقاف مراقبة قناة اليوتيوب.")
 
-# بدء تشغيل البوت
+# بدء البوت
 def start_bot():
     app_bot = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
@@ -99,10 +99,10 @@ def start_bot():
     app_bot.add_handler(CommandHandler("stop_monitoring", stop_monitoring))
     app_bot.run_polling()
 
-# بدء البوت في خيط منفصل
+# تشغيل البوت في خيط منفصل
 threading.Thread(target=start_bot, daemon=True).start()
 
-# تشغيل السيرفر
+# تشغيل السيرفر Flask
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
