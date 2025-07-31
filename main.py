@@ -1,114 +1,94 @@
 import os
-import subprocess
-from googleapiclient.discovery import build
 import yt_dlp
+import requests
+from flask import Flask
+from pytube import YouTube
+from moviepy.video.io.VideoFileClip import VideoFileClip
+from pydub import AudioSegment
 from telegram import Bot
 
-# قراءة بيانات API من متغيرات البيئة
-YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+app = Flask(__name__)
 
-# قائمة القنوات اللي تبي تتابعها (حط فيها أكثر من قناة لو حاب)
-CHANNEL_IDS = [
-    "UCm6dEXyAMIy0njEOW-suLww",  # مثال قناة
-]
+YOUTUBE_CHANNEL_ID = "UCm6dEXyAMIy0njEOW-suLww"
+MY_CHANNEL_UPLOAD_URL = "https://www.youtube.com/@Ksa518nn"
+TELEGRAM_TOKEN = "7775785980:AAEqt9Xld1mVZKwTH3lUOab9OELokAmsirA"
+TELEGRAM_CHAT_ID = "518518518"
+DOWNLOAD_PATH = "./downloads"
 
-# إعداد بوت التليجرام
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
+os.makedirs(DOWNLOAD_PATH, exist_ok=True)
 
-# إنشاء خدمة يوتيوب API
-youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
-
-def get_latest_video_id(channel_id):
-    try:
-        request = youtube.search().list(
-            part="id",
-            channelId=channel_id,
-            maxResults=1,
-            order="date",
-            type="video"
-        )
-        response = request.execute()
-        items = response.get('items')
-        if items:
-            return items[0]['id']['videoId']
-        else:
-            print(f"لا يوجد فيديوهات في القناة {channel_id}")
-            return None
-    except Exception as e:
-        print(f"خطأ في جلب الفيديو الأخير: {e}")
-        return None
-
-def download_video(video_url, filename):
+def download_latest_video():
     ydl_opts = {
-        'outtmpl': filename,
-        'format': 'mp4',
         'quiet': True,
+        'outtmpl': f'{DOWNLOAD_PATH}/%(id)s.%(ext)s',
+        'format': 'best'
     }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
-    except Exception as e:
-        print(f"فشل تحميل الفيديو {video_url}: {e}")
-        return False
-    return True
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        # استخراج بيانات القناة
+        channel_url = f"https://www.youtube.com/channel/{YOUTUBE_CHANNEL_ID}/videos"
+        info = ydl.extract_info(channel_url, download=False)
+        
+        # أخذ أحدث فيديو
+        if "entries" not in info or not info["entries"]:
+            print("❌ لا توجد فيديوهات.")
+            return None
 
-def cut_and_mark_video(filename, output_pattern):
-    command = [
-        "ffmpeg", "-i", filename, "-vf",
-        "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='pert\\: %{n}':x=10:y=10:fontsize=24:fontcolor=white:box=1:boxcolor=black@0.5",
-        "-c:a", "copy",
-        "-f", "segment",
-        "-segment_time", "90",
-        "-reset_timestamps", "1",
-        output_pattern
-    ]
-    try:
-        subprocess.run(command, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"خطأ في تقطيع الفيديو: {e}")
-        return False
-    return True
-
-def send_to_telegram(video_path):
-    try:
-        with open(video_path, 'rb') as video_file:
-            bot.send_video(chat_id=TELEGRAM_CHAT_ID, video=video_file)
-        print(f"تم إرسال الفيديو {video_path} بنجاح للتليجرام")
-    except Exception as e:
-        print(f"فشل إرسال الفيديو {video_path} إلى التليجرام: {e}")
-
-def main():
-    for channel_id in CHANNEL_IDS:
-        print(f"جاري معالجة القناة: {channel_id}")
-        video_id = get_latest_video_id(channel_id)
-        if not video_id:
-            continue
-
+        latest_video = info["entries"][0]
+        video_id = latest_video["id"]
         video_url = f"https://www.youtube.com/watch?v={video_id}"
-        filename = f"{video_id}.mp4"
 
-        if not os.path.exists(filename):
-            print(f"جاري تحميل الفيديو {video_url}")
-            success = download_video(video_url, filename)
-            if not success:
-                print("تخطي الفيديو بسبب فشل التحميل")
-                continue
+        # نحاول نتأكد أن الفيديو متاح
+        try:
+            ydl.extract_info(video_url, download=False)
+        except Exception as e:
+            print(f"⚠️ الفيديو غير متاح: {video_url}")
+            return None
+        
+        # إذا الفيديو متاح نحمله
+        ydl.download([video_url])
+        return os.path.join(DOWNLOAD_PATH, f"{video_id}.mp4")
 
-            output_pattern = f"{video_id}_part%03d.mp4"
-            print("جاري تقطيع الفيديو وكتابة الأجزاء ...")
-            success = cut_and_mark_video(filename, output_pattern)
-            if not success:
-                print("تخطي إرسال الفيديوهات بسبب فشل التقطيع")
-                continue
+def split_video(video_path):
+    clip = VideoFileClip(video_path)
+    duration = clip.duration
+    parts = []
 
-            parts = sorted([f for f in os.listdir('.') if f.startswith(video_id + '_part')])
-            for part in parts:
-                print(f"إرسال {part} إلى التليجرام ...")
-                send_to_telegram(part)
-        else:
-            print(f"الفيديو {filename} موجود مسبقاً، سيتم تخطي التحميل")
+    i = 0
+    start = 0
+    while start < duration:
+        end = min(start + 90, duration)
+        part_path = f"{video_path}_part{i+1}.mp4"
+        clip.subclip(start, end).write_videofile(part_path, codec="libx264")
+        parts.append(part_path)
+        start = end
+        i += 1
+
+    clip.close()
+    return parts
+
+def notify_telegram(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    data = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message
+    }
+    requests.post(url, data=data)
+
+@app.route("/")
+def run_bot():
+    video_path = download_latest_video()
+    if not video_path:
+        return "⛔ لم يتم تحميل أي فيديو."
+
+    parts = split_video(video_path)
+
+    for idx, part in enumerate(parts):
+        print(f"✅ Part {idx+1} saved: {part}")
+
+    notify_telegram("📢 تم رفع الفيديو المجزأ على القناة.")
+
+    return "✅ اكتملت العملية."
 
 if __name__ == "__main__":
-    main()
+    app.run(debug=True)
