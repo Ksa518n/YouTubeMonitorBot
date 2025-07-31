@@ -1,5 +1,4 @@
 requests
-python-dotenv
-yt_dlp
-moviepy
-telebot
+python-telegram-bot==20.6
+pytube
+flask
