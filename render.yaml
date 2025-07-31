@@ -1,15 +1,10 @@
 services:
   - type: web
-    name: yt-auto-uploader
+    name: youtube-monitor
     env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
     plan: free
-    runtime: docker
-    repo: https://github.com/your-user/yt-automation
-    branch: main
-    dockerfilePath: Dockerfile
-    autoDeploy: true
     envVars:
-      - key: TELEGRAM_TOKEN
-        value: "توكن البوت هنا"
-      - key: TELEGRAM_CHAT_ID
-        value: "معرف التليجرام (ID) هنا"
+      - key: PORT
+        value: 8080
