@@ -1,65 +1,68 @@
 import os
-import requests
-import time
-from pytube import YouTube
+import threading
 from flask import Flask
+from googleapiclient.discovery import build
+from pytube import YouTube
+from moviepy.video.io.VideoFileClip import VideoFileClip
 from telegram import Bot
 
-# متغيرات البيئة من رندر
-YOUTUBE_API_KEY = os.environ['YOUTUBE_API_KEY']
-CHANNEL_ID = os.environ['CHANNEL_ID']
-TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
-TELEGRAM_CHAT_ID = os.environ['TELEGRAM_CHAT_ID']
+# إعداد المتغيرات من البيئة
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-bot = Bot(token=TELEGRAM_TOKEN)
+# Flask app للتوافق مع Render
 app = Flask(__name__)
-
-CHECK_INTERVAL = 60  # كل دقيقة
-video_cache = set()
-
-def get_latest_video_id():
-    url = f'https://www.googleapis.com/youtube/v3/search?key={YOUTUBE_API_KEY}&channelId={CHANNEL_ID}&part=snippet,id&order=date&maxResults=1'
-    response = requests.get(url)
-    data = response.json()
-    if 'items' in data and len(data['items']) > 0:
-        return data['items'][0]['id']['videoId']
-    return None
-
-def download_and_send_parts(video_url, title):
-    yt = YouTube(video_url)
-    stream = yt.streams.get_highest_resolution()
-    file_path = stream.download(filename='video.mp4')
-
-    part_duration = 90  # ثانية
-    output_template = "part_%03d.mp4"
-    os.system(f"ffmpeg -i video.mp4 -c copy -map 0 -segment_time {part_duration} -f segment {output_template}")
-
-    part_num = 1
-    while os.path.exists(f"part_{part_num:03}.mp4"):
-        part_file = f"part_{part_num:03}.mp4"
-        with open(part_file, 'rb') as f:
-            bot.send_video(chat_id=TELEGRAM_CHAT_ID, video=f, caption=f"{title} - Part {part_num}")
-        os.remove(part_file)
-        part_num += 1
-
-    os.remove("video.mp4")
-
-def check_for_new_video():
-    video_id = get_latest_video_id()
-    if video_id and video_id not in video_cache:
-        video_cache.add(video_id)
-        video_url = f"https://www.youtube.com/watch?v={video_id}"
-        yt = YouTube(video_url)
-        download_and_send_parts(video_url, yt.title)
 
 @app.route("/")
 def home():
-    return "YouTube Monitor Bot is running!"
+    return "YouTube Monitor is running"
 
-if __name__ == "__main__":
+# إعدادات اليوتيوب
+youtube = build("youtube", "v3", developerKey=YOUTUBE_API_KEY)
+last_video_id = None
+
+# تابع لمراقبة قناة اليوتيوب
+def check_new_video():
+    global last_video_id
     while True:
-        try:
-            check_for_new_video()
-        except Exception as e:
-            print("Error:", e)
-        time.sleep(CHECK_INTERVAL)
+        req = youtube.search().list(part="snippet", channelId=YOUTUBE_CHANNEL_ID, order="date", maxResults=1)
+        res = req.execute()
+        video = res["items"][0]
+        video_id = video["id"]["videoId"]
+        if video_id != last_video_id:
+            last_video_id = video_id
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            download_and_send_video(url)
+        time.sleep(60)
+
+# تحميل الفيديو وتقسيمه ورفعه للتلقرام
+def download_and_send_video(url):
+    yt = YouTube(url)
+    stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+    filename = "video.mp4"
+    stream.download(filename=filename)
+
+    clips = split_video(filename)
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    for i, clip_path in enumerate(clips, 1):
+        bot.send_video(chat_id=TELEGRAM_CHAT_ID, video=open(clip_path, 'rb'), caption=f"Part {i}")
+
+def split_video(file_path):
+    clip = VideoFileClip(file_path)
+    clips = []
+    part = 1
+    for i in range(0, int(clip.duration), 90):
+        part_path = f"part{part}.mp4"
+        clip.subclip(i, min(i + 90, clip.duration)).write_videofile(part_path, codec="libx264")
+        clips.append(part_path)
+        part += 1
+    return clips
+
+# بدء خيط المراقبة
+threading.Thread(target=check_new_video, daemon=True).start()
+
+# تشغيل السيرفر على البورت المناسب
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
