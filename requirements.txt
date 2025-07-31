@@ -1,10 +1,7 @@
-Flask
-python-telegram-bot==20.3
-google-api-python-client
-google-auth
-google-auth-oauthlib
-google-auth-httplib2
-yt-dlp
+flask
+python-telegram-bot==20.6
+pytube
 moviepy
 requests
 python-dotenv
+gunicorn
