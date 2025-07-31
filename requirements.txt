@@ -5,3 +5,9 @@ google-api-python-client
 moviepy
 pytube
 python-telegram-bot==20.7
+python-telegram-bot==20.3
+Flask==2.2.5
+pytube==15.0.0
+moviepy==1.0.3
+python-dotenv==1.0.1
+requests==2.31.0
