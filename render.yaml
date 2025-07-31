@@ -4,13 +4,5 @@ services:
     env: docker
     plan: free
     envVars:
-      - key: CHANNEL_ID
-        fromDatabase: true
-      - key: TELEGRAM_TOKEN
-        fromDatabase: true
-      - key: TELEGRAM_CHAT_ID
-        fromDatabase: true
-      - key: YOUTUBE_API_KEY
-        fromDatabase: true
       - key: PORT
         value: 8080
